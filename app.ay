@@ -1,0 +1,110 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from PIL import Image
+
+# ----------------------------------------------------------------
+# 1. 사주 및 오행 로직 데이터 정의
+# ----------------------------------------------------------------
+ELEMENTS_MAP = {
+    '목': ['갑', '을', '인', '묘'],
+    '화': ['병', '정', '사', '오'],
+    '토': ['무', '기', '진', '술', '축', '미'],
+    '금': ['경', '신', '신', '유'],
+    '수': ['임', '계', '해', '자']
+}
+
+SANG_SAENG = {'목': '화', '화': '토', '토': '금', '금': '수', '수': '목'}
+SANG_GEUK = {'목': '토', '토': '수', '수': '화', '화': '금', '금': '목'}
+
+def analyze_saju_elements(saju_list):
+    """8자 리스트를 받아 오행 개수를 반환"""
+    counts = {'목': 0, '화': 0, '토': 0, '금': 0, '수': 0}
+    for char in saju_list:
+        for el, chars in ELEMENTS_MAP.items():
+            if char in chars:
+                counts[el] += 1
+    return counts
+
+# ----------------------------------------------------------------
+# 2. 상성 분석 로직
+# ----------------------------------------------------------------
+def get_compatibility(user1_data, user2_data):
+    """두 유저의 상성 분석"""
+    u1_main = max(user1_data['counts'], key=user1_data['counts'].get)
+    u2_main = max(user2_data['counts'], key=user2_data['counts'].get)
+    
+    if SANG_GEUK[u1_main] == u2_main:
+        return "⚠️ 상극", f"{u1_main}과 {u2_main}은 부딪히는 기운입니다. 사이에 식물이나 파티션을 두세요."
+    elif SANG_SAENG[u1_main] == u2_main or SANG_SAENG[u2_main] == u1_main:
+        return "✅ 상생", f"서로 기운을 북돋아 주는 관계입니다. 협업 시 시너지가 발생합니다."
+    else:
+        return "Neutral", "무난한 관계입니다."
+
+# ----------------------------------------------------------------
+# 3. Streamlit UI 구성
+# ----------------------------------------------------------------
+st.set_page_config(page_title="사주 오피스 배치", layout="wide")
+st.title("🔮 사주/오행 기반 사무실 자리 배치 시뮬레이터")
+
+# 사이드바: 유저 정보 입력
+st.sidebar.header("인원 정보 입력")
+user_count = st.sidebar.number_input("인원 수", min_value=1, max_value=5, value=2)
+
+users = []
+for i in range(user_count):
+    st.sidebar.subheader(f"사용자 {i+1}")
+    name = st.sidebar.text_input(f"이름", value=f"직원{i+1}", key=f"name_{i}")
+    # 실제 앱에선 생년월일 입력 -> 간지 변환 로직이 들어가야 함 (여기선 예시 데이터)
+    saju_input = st.sidebar.text_input(f"사주 간지 (8자)", value="갑자 병인 무술 경신", key=f"saju_{i}")
+    saju_list = saju_input.split()
+    users.append({"name": name, "counts": analyze_saju_elements(saju_list)})
+
+# 메인 화면: 사진 업로드 및 도면 가공
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("🖼️ 사무실 도면/사진 분석")
+    uploaded_file = st.file_uploader("사무실 사진을 업로드하세요", type=["jpg", "png"])
+    
+    if uploaded_file:
+        img = Image.open(uploaded_file)
+        st.image(img, caption="업로드된 도면", use_container_width=True)
+        st.info("💡 위 이미지에서 객체를 인식하여 '드래그 앤 드롭' 가능한 도면으로 변환합니다. (OpenCV 연동 영역)")
+
+with col2:
+    st.subheader("📊 오행 분석 결과")
+    for user in users:
+        st.write(f"**{user['name']}**님의 기운")
+        st.bar_chart(pd.DataFrame([user['counts']]).T)
+
+# 상성 비교 섹션
+if len(users) >= 2:
+    st.divider()
+    st.subheader("🤝 동료 상성 및 배치 추천")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        u1_idx = st.selectbox("직원 1 선택", range(len(users)), format_func=lambda x: users[x]['name'])
+    with c2:
+        u2_idx = st.selectbox("직원 2 선택", range(len(users)), format_func=lambda x: users[x]['name'])
+    
+    if u1_idx != u2_idx:
+        status, desc = get_compatibility(users[u1_idx], users[u2_idx])
+        st.metric("관계 점수", status)
+        st.write(desc)
+    else:
+        st.warning("서로 다른 직원을 선택해 주세요.")
+
+# ----------------------------------------------------------------
+# 4. 배치 전략 가이드
+# ----------------------------------------------------------------
+st.divider()
+with st.expander("💡 사주 기반 배치 팁"):
+    st.write("""
+    - **목(木)이 부족할 때**: 동쪽 자리, 화분 근처가 좋습니다.
+    - **화(火)가 부족할 때**: 남쪽 자리, 조명이 밝거나 채광이 좋은 곳이 좋습니다.
+    - **토(土)가 부족할 때**: 사무실 중앙이나 안정감이 느껴지는 벽 쪽 자리가 좋습니다.
+    - **금(金)이 부족할 때**: 서쪽 자리, 금속제 가구 근처나 에어컨 근처가 좋습니다.
+    - **수(水)이 부족할 때**: 북쪽 자리, 정수기 근처나 그늘진 자리가 좋습니다.
+    """)
